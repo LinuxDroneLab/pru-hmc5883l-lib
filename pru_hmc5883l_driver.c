@@ -23,6 +23,7 @@ typedef struct
     uint8_t regABack;
     uint8_t regBBack;
     uint8_t regModeBack;
+    uint8_t regRABack;
     unsigned char* data;
     unsigned char* dataTests;
     uint8_t dataBytes;
@@ -33,10 +34,10 @@ typedef struct
                                  unsigned char* dataTests);
 } HMC5883LInfo;
 // accept one device per channel
-HMC5883LInfo hmc5883lList[2] = { { 1, HMC5883L_STATUS_DISABLED, 0, 0, 0, 0, 0,
-                                   0, 0, 0, 0 },
-                                 { 2, HMC5883L_STATUS_DISABLED, 0, 0, 0, 0, 0,
-                                   0, 0, 0, 0 } };
+HMC5883LInfo hmc5883lList[2] = { { 1, 0, HMC5883L_STATUS_DISABLED, 0, 0, 0, 0,
+                                   0, 0, 0, 0, 0, 0 },
+                                 { 2, 0, HMC5883L_STATUS_DISABLED, 0, 0, 0, 0,
+                                   0, 0, 0, 0, 0, 0 } };
 
 uint8_t pru_hmc5883l_driver_Conf(uint8_t deviceNumber, HMC5883LConf* conf)
 {
@@ -211,7 +212,17 @@ uint8_t pru_hmc5883l_driver_ReadData(uint8_t deviceNumber, unsigned char* data)
     }
     return result;
 }
-
+uint8_t checkDataReady(uint8_t deviceNumber)
+{
+    if (pru_i2c_driver_ReadReg(deviceNumber,
+    HMC5883L_ADDRESS,
+                               HMC5883L_RA_STATUS,
+                               &(hmc5883lList[deviceNumber - 1].regRABack)))
+    {
+        return (hmc5883lList[deviceNumber - 1].regRABack & 0x01);
+    }
+    return 0;
+}
 uint8_t pru_hmc5883l_driver_SelfTests(uint8_t deviceNumber, unsigned char* data)
 {
     if (!pru_hmc5883l_driver_Enable(deviceNumber))
@@ -237,28 +248,31 @@ uint8_t pru_hmc5883l_driver_SelfTests(uint8_t deviceNumber, unsigned char* data)
                                             0x01)) // single mode
                 {
                     {
-                        uint8_t status;
                         while (1) // TODO: gestire con state machine e timeout
                         {
-                            if (pru_i2c_driver_ReadReg(deviceNumber,
-                            HMC5883L_ADDRESS,
-                                                       HMC5883L_RA_STATUS,
-                                                       &status))
-                            {
-                                if (!(status & 0x01))
-                                {
-                                    break;
-                                }
+                            if(!checkDataReady(deviceNumber)) {
+                                break;
                             }
+//                            if (pru_i2c_driver_ReadReg(deviceNumber,
+//                            HMC5883L_ADDRESS,
+//                                                       HMC5883L_RA_STATUS,
+//                                                       &status))
+//                            {
+//                                if (!(status & 0x01))
+//                                {
+//                                    break;
+//                                }
+//                            }
                         }
                         while (1) // TODO: gestire con state machine e timeout
                         {
-                            if (pru_i2c_driver_ReadReg(deviceNumber,
-                            HMC5883L_ADDRESS,
-                                                       HMC5883L_RA_STATUS,
-                                                       &status))
-                            {
-                                if (status & 0x01)
+//                            if (pru_i2c_driver_ReadReg(deviceNumber,
+//                            HMC5883L_ADDRESS,
+//                                                       HMC5883L_RA_STATUS,
+//                                                       &status))
+//                            {
+//                                if (status & 0x01)
+                                if (checkDataReady(deviceNumber))
                                 {
                                     if (pru_hmc5883l_driver_ReadData(
                                             deviceNumber, data))
@@ -280,7 +294,7 @@ uint8_t pru_hmc5883l_driver_SelfTests(uint8_t deviceNumber, unsigned char* data)
                                         }
                                     }
                                 }
-                            }
+//                            }
                         }
                     }
 
@@ -297,20 +311,24 @@ uint8_t pru_hmc5883l_driver_Pulse(uint8_t deviceNumber)
     {
         if (hmc5883lList[deviceNumber - 1].data != 0)
         {
-            if (hmc5883lList[deviceNumber - 1].dataBytes =
-                    pru_hmc5883l_driver_ReadData(
-                            deviceNumber, hmc5883lList[deviceNumber - 1].data))
-            {
-                if (hmc5883lList[deviceNumber - 1].callbackData != 0)
+            if(checkDataReady(deviceNumber)) {
+                if (hmc5883lList[deviceNumber - 1].dataBytes =
+                        pru_hmc5883l_driver_ReadData(
+                                deviceNumber, hmc5883lList[deviceNumber - 1].data))
                 {
-                    if ((*(hmc5883lList[deviceNumber - 1].callbackData))(
-                            deviceNumber,
-                            hmc5883lList[deviceNumber - 1].dataBytes,
-                            hmc5883lList[deviceNumber - 1].data))
+                    if (hmc5883lList[deviceNumber - 1].callbackData != 0)
                     {
-                        return 1;
+                        if ((*(hmc5883lList[deviceNumber - 1].callbackData))(
+                                deviceNumber,
+                                hmc5883lList[deviceNumber - 1].dataBytes,
+                                hmc5883lList[deviceNumber - 1].data))
+                        {
+                            return 1;
+                        }
                     }
                 }
+            } else {
+                return 1;
             }
         }
         return 0;
